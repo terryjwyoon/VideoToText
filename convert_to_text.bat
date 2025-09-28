@@ -2,7 +2,7 @@
 chcp 65001 >nul
 echo ============================================================
 echo         MP4 to Text Converter - Korean Optimized
-echo         Using Local Whisper AI with GPU Acceleration  
+echo         Batch Processing with Local Whisper AI + GPU  
 echo ============================================================
 echo.
 
@@ -24,37 +24,35 @@ if not exist "run\input\*.mp4" (
     exit /b
 )
 
-echo [FOUND] MP4 files for conversion:
+echo [FOUND] MP4 files for batch processing:
 dir "run\input\*.mp4" /b
 echo.
 echo [INPUT]  Directory: %CD%\run\input\
 echo [OUTPUT] Directory: %CD%\run\output\
 echo.
 
-echo [START] AI transcription process...
-echo [INFO]  This may take a while for large files (6+ hours)
-echo [GPU]   Using GPU acceleration for faster processing
+echo [BATCH]  All files will use the same processing options
+echo [START]  AI transcription batch process...
+echo [INFO]   Configure once, process all files automatically
+echo [GPU]    Using GPU acceleration for faster processing
 echo.
 
-REM Process each MP4 file in the input directory
-for %%f in ("run\input\*.mp4") do (
+REM Run the Python converter with input directory - it will handle batch processing internally
+E:/Study/TY008-PythonUtil/mp4ToText/.venv/Scripts/python.exe mp4_converter_standalone.py
+
+REM Move all output text files to output directory
+if exist "*.txt" (
     echo.
-    echo [PROCESSING] %%~nxf
-    echo ----------------------------------------
-    
-    REM Run the Python converter with specific input file
-    E:/Study/TY008-PythonUtil/mp4ToText/.venv/Scripts/python.exe mp4_converter_standalone.py "%%f"
-    
-    REM Move the output text file to output directory if it exists
-    if exist "%%~nf.txt" (
-        move "%%~nf.txt" "run\output\"
-        echo [SUCCESS] Text file moved to output directory: %%~nf.txt
+    echo [CLEANUP] Moving text files to output directory...
+    for %%f in (*.txt) do (
+        move "%%f" "run\output\"
+        echo [MOVED] %%f
     )
 )
 
 echo.
 echo ============================================================
-echo [COMPLETE] All conversions completed!
+echo [COMPLETE] All batch processing completed!
 echo [OUTPUT] Check your text files in: %CD%\run\output\
 echo ============================================================
 pause

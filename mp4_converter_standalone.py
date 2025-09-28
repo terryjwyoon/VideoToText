@@ -798,15 +798,23 @@ def print_help():
     print()
 
 
-def select_workflow_type() -> str:
+def select_workflow_type(file_count: int = 1) -> str:
     """
     Interactive workflow selection menu
+    
+    Args:
+        file_count: Number of files to process (for batch processing info)
     
     Returns:
         str: workflow type ('audio-only', 'text-only', 'audio-and-text')
     """
     print("🚀 Workflow Selection")
     print("=" * 25)
+    
+    if file_count > 1:
+        print(f"📁 Found {file_count} MP4 files - This selection will apply to ALL files")
+        print()
+    
     print("1. Convert to Audio Only (MP3/M4A)")
     print("2. Convert to Text Only (using Whisper AI)")
     print("3. Convert to Both Audio and Text")
@@ -814,7 +822,11 @@ def select_workflow_type() -> str:
     
     while True:
         try:
-            choice = input("Select workflow (1-3): ").strip()
+            if file_count > 1:
+                choice = input(f"Select workflow for ALL {file_count} files (1-3): ").strip()
+            else:
+                choice = input("Select workflow (1-3): ").strip()
+                
             if choice == "1":
                 return "audio-only"
             elif choice == "2":
@@ -829,9 +841,12 @@ def select_workflow_type() -> str:
             sys.exit(0)
 
 
-def select_output_format() -> tuple:
+def select_output_format(file_count: int = 1) -> tuple:
     """
     Interactive format selection menu for audio conversion
+    
+    Args:
+        file_count: Number of files to process (for batch processing info)
     
     Returns:
         tuple: (format_choice, keep_intermediate)
@@ -840,6 +855,11 @@ def select_output_format() -> tuple:
     """
     print("\n🎵 Audio Format Selection")
     print("=" * 30)
+    
+    if file_count > 1:
+        print(f"📁 This format selection will apply to ALL {file_count} files")
+        print()
+    
     print("1. MP3 only (fastest, direct conversion)")
     print("2. M4A only (high quality, smaller size)")
     print("3. Both MP3 and M4A (recommended)")
@@ -847,7 +867,11 @@ def select_output_format() -> tuple:
     
     while True:
         try:
-            choice = input("Select audio format (1-3): ").strip()
+            if file_count > 1:
+                choice = input(f"Select audio format for ALL {file_count} files (1-3): ").strip()
+            else:
+                choice = input("Select audio format (1-3): ").strip()
+                
             if choice == "1":
                 format_choice = "mp3"
                 break
@@ -904,13 +928,24 @@ def confirm_workflow(input_files: list, workflow_type: str, format_choice: str =
     Returns:
         bool: True if user confirms, False otherwise
     """
-    print("\n📋 Processing Summary")
-    print("=" * 25)
-    print(f"Files to process: {len(input_files)}")
-    for i, file in enumerate(input_files, 1):
-        print(f"  {i}. {os.path.basename(file)}")
+    print("\n📋 Batch Processing Summary")
+    print("=" * 30)
+    print(f"📁 Files to process: {len(input_files)}")
+    
+    if len(input_files) <= 5:
+        # Show all files if 5 or fewer
+        for i, file in enumerate(input_files, 1):
+            print(f"  {i}. {os.path.basename(file)}")
+    else:
+        # Show first 3 and last 2 if more than 5
+        for i in range(3):
+            print(f"  {i+1}. {os.path.basename(input_files[i])}")
+        print(f"  ... ({len(input_files)-5} more files)")
+        for i in range(len(input_files)-2, len(input_files)):
+            print(f"  {i+1}. {os.path.basename(input_files[i])}")
     
     print()
+    print(f"🎯 Workflow: {workflow_type.replace('-', ' ').title()}")
     
     if workflow_type == "audio-only":
         format_descriptions = {
@@ -918,12 +953,12 @@ def confirm_workflow(input_files: list, workflow_type: str, format_choice: str =
             'm4a': "M4A format only",
             'both': f"Both M4A and MP3 formats {'(keeping M4A)' if keep_intermediate else '(removing intermediate M4A)'}"
         }
-        print(f"Output: {format_descriptions[format_choice]}")
+        print(f"📄 Output: {format_descriptions[format_choice]}")
         
     elif workflow_type == "text-only":
-        print(f"Output: Text files (.txt) using Whisper AI large-v3 model")
+        print(f"📄 Output: Text files (.txt) using Whisper AI large-v3 model")
         if WHISPER_AVAILABLE:
-            print(f"AI Model: Local Whisper with {'GPU' if torch.cuda.is_available() else 'CPU'} acceleration")
+            print(f"🤖 AI Model: Local Whisper with {'GPU' if torch.cuda.is_available() else 'CPU'} acceleration")
         else:
             print(f"⚠️  Warning: Whisper AI not installed")
             
@@ -933,11 +968,16 @@ def confirm_workflow(input_files: list, workflow_type: str, format_choice: str =
             'm4a': "M4A + Text files", 
             'both': f"Both M4A and MP3 + Text files {'(keeping M4A)' if keep_intermediate else '(removing intermediate M4A)'}"
         }
-        print(f"Output: {format_descriptions[format_choice]}")
+        print(f"📄 Output: {format_descriptions[format_choice]}")
         if WHISPER_AVAILABLE:
-            print(f"AI Model: Local Whisper with {'GPU' if torch.cuda.is_available() else 'CPU'} acceleration")
+            print(f"🤖 AI Model: Local Whisper with {'GPU' if torch.cuda.is_available() else 'CPU'} acceleration")
     
     print()
+    
+    if len(input_files) > 1:
+        print(f"⚡ Batch Mode: All {len(input_files)} files will be processed automatically")
+        print(f"⏱️  Estimated time: {'Long processing time for text conversion' if 'text' in workflow_type else 'Moderate processing time'}")
+        print()
     
     while True:
         try:
@@ -985,15 +1025,34 @@ def main():
             print(f"❌ Error: File '{args[0]}' not found!")
             sys.exit(1)
     else:
-        # Process all MP4 files in current directory
-        current_dir = os.getcwd()
-        input_files = find_mp4_files(current_dir)
+        # Check for batch processing directory first
+        input_dir = os.path.join(os.getcwd(), "run", "input")
+        if os.path.exists(input_dir):
+            input_files = find_mp4_files(input_dir)
+            if input_files:
+                print(f"📁 Found {len(input_files)} MP4 files in batch input directory")
+                print(f"📂 Input directory: {input_dir}")
+            else:
+                # Fall back to current directory
+                current_dir = os.getcwd()
+                input_files = find_mp4_files(current_dir)
+        else:
+            # Process all MP4 files in current directory
+            current_dir = os.getcwd()
+            input_files = find_mp4_files(current_dir)
         
         if not input_files:
-            print("No MP4 files found in the current directory.")
-            print(f"Current directory: {current_dir}")
+            print("No MP4 files found.")
+            if os.path.exists(input_dir):
+                print(f"Checked directories:")
+                print(f"  - Batch input: {input_dir}")
+                print(f"  - Current: {os.getcwd()}")
+            else:
+                print(f"Current directory: {os.getcwd()}")
             print("\nSupported file extensions: .mp4, .MP4")
-            print("\n💡 Tip: Place your MP4 files in the same directory as this executable.")
+            print("\n💡 Tip: Place your MP4 files in:")
+            print("   - run\\input\\ directory (for batch processing)")
+            print("   - Same directory as this executable")
             return
     
     # Determine workflow and settings
@@ -1021,15 +1080,16 @@ def main():
             keep_intermediate = keep_intermediate_flag
     else:
         # Interactive mode
-        workflow_type = select_workflow_type()
+        total_files = len(input_files)
+        workflow_type = select_workflow_type(total_files)
         
         if workflow_type == "audio-only":
-            format_choice, keep_intermediate = select_output_format()
+            format_choice, keep_intermediate = select_output_format(total_files)
         elif workflow_type == "text-only":
             format_choice = None
             keep_intermediate = False
         elif workflow_type == "audio-and-text":
-            format_choice, keep_intermediate = select_output_format()
+            format_choice, keep_intermediate = select_output_format(total_files)
         
         # Show confirmation
         if not confirm_workflow(input_files, workflow_type, format_choice, keep_intermediate):
@@ -1051,12 +1111,32 @@ def main():
     total_files = len(input_files)
     successful_conversions = 0
     failed_conversions = 0
+    start_time = time.time()
+    
+    if total_files > 1:
+        print(f"🔄 Batch Processing: {total_files} files with same settings")
+        print("=" * 50)
     
     for i, input_file in enumerate(input_files, 1):
         input_path = Path(input_file)
         file_name = input_path.name
         
-        print(f"[{i}/{total_files}] Processing: {file_name}")
+        # Show batch progress with time estimates
+        if total_files > 1:
+            elapsed = time.time() - start_time
+            if i > 1:  # Can estimate time after first file
+                avg_time_per_file = elapsed / (i - 1)
+                remaining_files = total_files - i + 1
+                estimated_remaining = avg_time_per_file * remaining_files
+                eta_minutes = int(estimated_remaining / 60)
+                eta_seconds = int(estimated_remaining % 60)
+                print(f"📊 Batch Progress: [{i}/{total_files}] | ETA: {eta_minutes}m {eta_seconds}s")
+            else:
+                print(f"📊 Batch Progress: [{i}/{total_files}] | Calculating ETA...")
+        else:
+            print(f"[{i}/{total_files}]", end=" ")
+            
+        print(f"Processing: {file_name}")
         print("-" * 50)
         
         try:
@@ -1122,23 +1202,79 @@ def main():
         
         print()
     
+    # Calculate total processing time
+    total_time = time.time() - start_time
+    hours = int(total_time // 3600)
+    minutes = int((total_time % 3600) // 60)
+    seconds = int(total_time % 60)
+    
     # Print summary
     print("=" * 60)
-    print("                    🎵 PROCESSING SUMMARY 🎵")
+    if total_files > 1:
+        print("                  🚀 BATCH PROCESSING SUMMARY 🚀")
+    else:
+        print("                    🎵 PROCESSING SUMMARY 🎵")
     print("=" * 60)
     print(f"Total files processed:     {total_files}")
     print(f"Successful conversions:    {successful_conversions}")
     print(f"Failed conversions:        {failed_conversions}")
     
+    # Show timing information
+    if hours > 0:
+        print(f"Total processing time:     {hours}h {minutes}m {seconds}s")
+    else:
+        print(f"Total processing time:     {minutes}m {seconds}s")
+    
+    if total_files > 1 and successful_conversions > 0:
+        avg_time = total_time / successful_conversions
+        avg_minutes = int(avg_time // 60)
+        avg_seconds = int(avg_time % 60)
+        print(f"Average time per file:     {avg_minutes}m {avg_seconds}s")
+    
+    # Auto-move text files to output directory if using batch processing
+    input_dir = os.path.join(os.getcwd(), "run", "input")
+    output_dir = os.path.join(os.getcwd(), "run", "output")
+    
+    if (len(input_files) > 0 and 
+        os.path.exists(input_dir) and 
+        any(input_file.startswith(input_dir) for input_file in input_files) and
+        workflow_type in ["text-only", "audio-and-text"]):
+        
+        # Move text files to output directory
+        os.makedirs(output_dir, exist_ok=True)
+        moved_files = 0
+        
+        for txt_file in glob.glob("*.txt"):
+            try:
+                output_path = os.path.join(output_dir, txt_file)
+                os.rename(txt_file, output_path)
+                moved_files += 1
+            except Exception as e:
+                print(f"⚠️ Could not move {txt_file} to output directory: {e}")
+        
+        if moved_files > 0:
+            print(f"\n📁 Moved {moved_files} text file(s) to: {output_dir}")
+    
     if failed_conversions == 0:
-        print("\n🎉 All processing completed successfully!")
+        print("\n🎉 All batch processing completed successfully!")
+        if total_files > 1:
+            print(f"📁 {successful_conversions} files processed automatically!")
         if workflow_type in ["text-only", "audio-and-text"]:
             print("🤖 AI transcription results are ready!")
         print("✨ Your files are ready to use!")
     else:
         print(f"\n⚠ {failed_conversions} processing task(s) failed. Check the error messages above.")
+        if successful_conversions > 0:
+            print(f"✅ {successful_conversions} files were processed successfully.")
     
-    print("\n📁 Check your files in the current directory.")
+    # Show appropriate directory information
+    if (os.path.exists(output_dir) and 
+        workflow_type in ["text-only", "audio-and-text"] and
+        any(input_file.startswith(input_dir) for input_file in input_files if os.path.exists(input_dir))):
+        print(f"\n📁 Check your text files in: {output_dir}")
+    else:
+        print("\n📁 Check your files in the current directory.")
+        
     print("\nPress Enter to exit...")
     try:
         input()
