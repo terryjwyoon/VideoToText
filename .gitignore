@@ -1,6 +1,31 @@
-.venv
+# Python Environment
+.venv/
 __pycache__/
-build/
+*.pyc
+*.pyo
+*.pyd
 
+# Build artifacts
+build/
+dist/
+*.exe
+*.spec
+
+# Release files (executables)
+release/*.exe
+
+# Media files
 *.mp4
+*.m4a
+*.mp3
+
+# Output text files
 *.txt
+!README.txt
+!requirements.txt
+!docs/*.txt
+
+# OS specific
+.DS_Store
+Thumbs.db
+*.log
