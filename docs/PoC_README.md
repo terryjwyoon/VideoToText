@@ -1,8 +1,31 @@
-# MP4 to Audio Converter - Proof of Concept (PoC)
+# MP4 to Audio Converter - Enhanced PoC
 
 ## Overview
 
-This is a Proof of Concept (PoC) implementation of an MP4 to audio converter that can convert MP4 video files to M4A and MP3 audio formats. The application is designed to be a standalone executable that doesn't require Python installation on the target system.
+This is an enhanced Proof of Concept (PoC) implementation of an MP4 to audio converter that can convert MP4 video files to M4A and MP3 audio formats. The application features **real-time progress tracking** and **interactive format selection**, designed to be a standalone executable that doesn't require Python installation on the target system.
+
+## ✨ New Features (Enhanced Version)
+
+### 🚀 **Progress Tracking**
+- **Real-time progress bars** during conversion with percentage display
+- **Visual feedback** using progress bars with completion indicators
+- **Duration-based calculation** for accurate progress estimation
+- **Step-by-step status updates** for multi-stage conversions
+
+### 🎯 **Interactive Format Selection**
+- **Smart menu system** for choosing output formats when running the executable
+- **Three conversion options**:
+  1. **MP3 only** (fastest, direct conversion)
+  2. **M4A only** (high quality, smaller size)
+  3. **Both MP3 and M4A** (recommended for flexibility)
+- **Confirmation prompts** showing conversion summary before processing
+- **Intermediate file management** options for "both formats" mode
+
+### 💎 **Enhanced User Experience**
+- **Emoji indicators** for better visual feedback (✅ ❌ 🎉 💡)
+- **Improved error messages** with helpful suggestions
+- **Professional formatting** with clear section headers
+- **Helpful tips** when no files are found
 
 ## Implementation Status
 
@@ -46,33 +69,91 @@ mp4_converter.exe --help
 
 ### Command Options
 - `--help` or `-h`: Show usage information
-- `--keep-intermediate`: Keep intermediate M4A files (default: delete them)
-- `--m4a-only`: Only convert to M4A format
-- `--mp3-only`: Only convert to MP3 format (via M4A intermediate)
+- `--mp3-only`: Convert directly to MP3 format (fastest, single-step conversion)
+- `--m4a-only`: Only convert to M4A format (high quality)
+- `--both`: Convert to both M4A and MP3 formats
+- `--keep-intermediate`: Keep intermediate M4A files (only for --both mode)
 
 ### Examples
 
-**Convert all MP4 files in directory to both M4A and MP3:**
+**Interactive mode with progress tracking (recommended):**
 ```bash
+# Run with format selection menu
 mp4_converter.exe
 ```
 
-**Convert only to M4A format:**
+**Command-line options for automation:**
 ```bash
+# Convert directly to MP3 only (fastest)
+mp4_converter.exe --mp3-only
+
+# Convert to M4A only (high quality)
 mp4_converter.exe --m4a-only
+
+# Convert to both formats with progress tracking
+mp4_converter.exe --both
 ```
 
-**Convert specific file and keep intermediate M4A:**
-```bash
-mp4_converter.exe video.mp4 --keep-intermediate
+## How It Works (Enhanced)
+
+1. **Interactive Format Selection**: User-friendly menu for choosing output formats
+2. **File Discovery**: Scans current directory for .mp4 and .MP4 files  
+3. **Progress Tracking**: Real-time conversion progress with visual progress bars
+4. **Smart Conversion**: 
+   - **MP3 only**: Direct MP4→MP3 conversion (fastest)
+   - **M4A only**: MP4→M4A conversion (high quality)
+   - **Both formats**: MP4→M4A→MP3 with optional intermediate file management
+5. **Cleanup**: Automatic cleanup of intermediate files (user configurable)
+
+## Example Output (Enhanced with Progress)
+
 ```
+============================================================
+         MP4 to Audio Converter - PoC
+         Converting MP4 files to M4A and MP3
+============================================================
 
-## How It Works
+🎵 Output Format Selection
+==============================
+1. MP3 only (fastest, direct conversion)
+2. M4A only (high quality, smaller size)  
+3. Both MP3 and M4A (recommended)
 
-1. **File Discovery**: Scans current directory for .mp4 and .MP4 files
-2. **MP4 → M4A**: Uses FFmpeg to extract audio stream and encode as AAC in M4A container
-3. **M4A → MP3**: Converts M4A to MP3 format with 128k bitrate
-4. **Cleanup**: Removes intermediate M4A files (unless `--keep-intermediate` is specified)
+Select output format (1-3): 1
+
+📋 Conversion Summary
+=========================
+Files to process: 1
+  1. sample_video.mp4
+
+Output format: MP3 format only (direct conversion)
+
+Proceed with conversion? (y/n): y
+
+🚀 Starting Conversion Process
+===================================
+
+[1/1] Processing: sample_video.mp4
+--------------------------------------------------
+  Converting... (MP4 → MP3 (Direct))
+[████████████████████████████████] 100.0%
+  ✓ Successfully converted: sample_video.mp4 → sample_video.mp3
+🎉 Successfully processed: sample_video.mp4
+
+============================================================
+                    🎵 CONVERSION SUMMARY 🎵
+============================================================
+Total files processed:     1
+Successful conversions:    1
+Failed conversions:        0
+
+🎉 All conversions completed successfully!
+✨ Your audio files are ready to use!
+
+📁 Check your files in the current directory.
+
+Press Enter to exit...
+```
 
 ## Output Format
 
