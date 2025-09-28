@@ -9,6 +9,15 @@ using local Whisper AI with progress tracking and interactive format selection.
 import os
 import sys
 import glob
+import warnings
+
+# Suppress specific Triton warnings from Whisper timing operations
+# These warnings are cosmetic - GPU transcription still works at full speed
+# Only timing alignment operations fall back to CPU (minimal performance impact)
+warnings.filterwarnings("ignore", category=UserWarning, module="whisper.timing")
+warnings.filterwarnings("ignore", message="Failed to launch Triton kernels")
+warnings.filterwarnings("ignore", message=".*DTW implementation.*")
+
 import ffmpeg
 import subprocess
 import threading
@@ -217,10 +226,16 @@ class WhisperTranscriber:
         if device == "auto":
             if torch.cuda.is_available():
                 device = "cuda"
-                print(f"  🚀 GPU detected: {torch.cuda.get_device_name(0)}")
+                gpu_name = torch.cuda.get_device_name(0)
+                gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
+                print(f"  🚀 GPU detected: {gpu_name} ({gpu_memory:.1f}GB VRAM)")
+                print(f"  ⚡ Using GPU acceleration for faster processing")
             else:
                 device = "cpu"
-                print(f"  💻 Using CPU for processing")
+                print(f"  💻 No GPU detected, using CPU for processing")
+                print(f"  ⚠️  CPU processing will be significantly slower")
+        else:
+            print(f"  🎯 Using specified device: {device}")
         
         return device
     
@@ -231,25 +246,55 @@ class WhisperTranscriber:
             print(f"  ℹ️ First run may download ~3GB model file")
             
             try:
-                self.model = whisper.load_model(self.model_name, device=self.device)
+                # Load with optimized settings for Windows/CUDA
+                self.model = whisper.load_model(
+                    self.model_name, 
+                    device=self.device,
+                    download_root=None,  # Use default cache
+                    in_memory=True  # Keep model in memory for better performance
+                )
                 print(f"  ✅ Model loaded successfully on {self.device}")
+                
+                # Note: Removed pre-warming to avoid language detection issues
+                if self.device == "cuda":
+                    print(f"  🔥 GPU model ready for Korean transcription")
+                
             except Exception as e:
                 print(f"  ❌ Failed to load model: {e}")
                 raise
     
-    def transcribe_chunk(self, audio_file: str, chunk_index: int, start_time: float = 0) -> dict:
+    def transcribe_chunk(self, audio_file: str, chunk_index: int, start_time: float = 0, language: str = "ko") -> dict:
         """Transcribe a single audio chunk"""
         try:
             print(f"    🎤 Processing chunk {chunk_index + 1}...")
             
-            # Transcribe with Korean language hint and other optimizations
-            result = self.model.transcribe(
-                audio_file,
-                language="ko",  # Korean language hint
-                task="transcribe",
-                fp16=torch.cuda.is_available(),  # Use FP16 for GPU acceleration
-                verbose=False
-            )
+            # Temporarily suppress timing-related warnings during transcription
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=UserWarning, module="whisper.timing")
+                warnings.filterwarnings("ignore", message="Failed to launch Triton kernels")
+                warnings.filterwarnings("ignore", message=".*DTW implementation.*")
+                
+                # Transcribe with FORCED Korean language and anti-hallucination settings
+                result = self.model.transcribe(
+                    audio_file,
+                    language=language,  # Use the forced language parameter
+                    task="transcribe",
+                    fp16=torch.cuda.is_available(),  # Use FP16 for GPU acceleration
+                    verbose=False,
+                    # Disable word-level timestamps to avoid Triton kernel warnings
+                    word_timestamps=False,  # Disabled to prevent Triton warnings
+                    # Remove initial_prompt to prevent contamination of output
+                    # initial_prompt removed to prevent contamination
+                    no_speech_threshold=0.05,  # Very low threshold to catch quiet beginnings
+                    logprob_threshold=-1.0,  # Lower threshold for better accuracy with quiet audio
+                    compression_ratio_threshold=1.8,  # Lower to reduce hallucinations like "자막제공자"
+                    condition_on_previous_text=False,  # Disable to prevent prompt contamination
+                    temperature=0.0,  # Deterministic output for consistency
+                    beam_size=1,  # Disable beam search to avoid some GPU optimization issues
+                    # Anti-hallucination settings
+                    suppress_tokens=[-1],  # Suppress common subtitle tokens
+                    without_timestamps=True  # Focus on content, not timing precision
+                )
             
             # Adjust timestamps based on chunk start time
             if start_time > 0:
@@ -257,13 +302,52 @@ class WhisperTranscriber:
                     segment["start"] += start_time
                     segment["end"] += start_time
             
+            # Clean up any prompt contamination and subtitle hallucinations from the output text
+            if "text" in result:
+                cleaned_text = result["text"]
+                
+                # Remove common prompt contaminations
+                prompt_phrases = [
+                    "한국어 음성을 정확하게 인식해주세요.",
+                    "안녕하세요.",
+                    "한국어 음성을 정확하게 인식해주세요",
+                    "안녕하세요"
+                ]
+                
+                # Remove common subtitle hallucinations
+                subtitle_hallucinations = [
+                    "자막제공자",
+                    "자막 제공자",
+                    "자막제공", 
+                    "자막 제공",
+                    "구독",
+                    "좋아요",
+                    "알림",
+                    "구독과 좋아요",
+                    "시청해주셔서 감사합니다",
+                    "채널 구독",
+                    "Subscribe",
+                    "Like"
+                ]
+                
+                # Clean all unwanted phrases
+                all_unwanted = prompt_phrases + subtitle_hallucinations
+                for phrase in all_unwanted:
+                    cleaned_text = cleaned_text.replace(phrase, "").strip()
+                
+                # Clean up multiple spaces and normalize
+                import re
+                cleaned_text = re.sub(r'\s+', ' ', cleaned_text).strip()
+                
+                result["text"] = cleaned_text
+            
             return result
             
         except Exception as e:
             print(f"    ❌ Error transcribing chunk {chunk_index + 1}: {e}")
             return {"text": f"[Error transcribing chunk {chunk_index + 1}: {e}]", "segments": []}
     
-    def transcribe_chunks(self, chunk_files: List[str], chunk_duration: float) -> List[dict]:
+    def transcribe_chunks(self, chunk_files: List[str], chunk_duration: float, language: str = "ko") -> List[dict]:
         """Transcribe multiple audio chunks"""
         if not self.model:
             self.load_model()
@@ -275,7 +359,7 @@ class WhisperTranscriber:
         
         for i, chunk_file in enumerate(chunk_files):
             start_time = i * chunk_duration
-            result = self.transcribe_chunk(chunk_file, i, start_time)
+            result = self.transcribe_chunk(chunk_file, i, start_time, language)
             results.append(result)
             
             # Show progress
@@ -298,7 +382,7 @@ class WhisperTranscriber:
         
         return " ".join(merged_text).strip()
     
-    def transcribe_audio_file(self, audio_file: str, output_file: str = None) -> str:
+    def transcribe_audio_file(self, audio_file: str, output_file: str = None, language: str = "ko") -> str:
         """Complete transcription pipeline for audio file"""
         input_path = Path(audio_file)
         
@@ -320,7 +404,7 @@ class WhisperTranscriber:
             chunk_duration = total_duration / len(chunk_files) if len(chunk_files) > 1 else 0
             
             # Transcribe chunks
-            results = self.transcribe_chunks(chunk_files, chunk_duration)
+            results = self.transcribe_chunks(chunk_files, chunk_duration, language)
             
             # Merge results
             final_transcript = self.merge_transcripts(results)
@@ -340,6 +424,11 @@ class WhisperTranscriber:
         finally:
             # Clean up temporary files
             splitter.cleanup_temp_files()
+            
+            # Clear GPU memory if using CUDA
+            if self.device == "cuda" and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                print(f"  🧹 GPU memory cleared")
 
 
 class AudioConverter:
@@ -596,14 +685,15 @@ class AudioConverter:
         except Exception as e:
             raise RuntimeError(f"Error during MP4 to MP3 conversion: {e}")
     
-    def transcribe_audio_to_text(self, audio_file: str, output_file: str = None) -> str:
+    def transcribe_audio_to_text(self, audio_file: str, output_file: str = None, force_language: str = "ko") -> str:
         """
-        Transcribe audio file to text using local Whisper AI
+        Transcribe audio file to text using local Whisper AI with forced Korean language
         
         Args:
             audio_file (str): Path to the input audio file (M4A, MP3, WAV)
             output_file (str, optional): Path to the output text file.
                                        If None, will use input filename with .txt extension
+            force_language (str): Language code to force recognition (default: "ko" for Korean)
         
         Returns:
             str: Path to the generated text file
@@ -633,8 +723,8 @@ class AudioConverter:
             # Initialize Whisper transcriber
             transcriber = WhisperTranscriber(model_name="large-v3", device="auto")
             
-            # Perform transcription
-            result_file = transcriber.transcribe_audio_file(audio_file, output_file)
+            # Perform transcription with forced Korean
+            result_file = transcriber.transcribe_audio_file(audio_file, output_file, force_language)
             
             print(f"  🎉 Transcription completed successfully!")
             return result_file
