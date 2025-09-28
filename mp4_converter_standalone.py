@@ -1,9 +1,9 @@
 """
-MP4 to Audio Converter - Proof of Concept (PoC)
-Combined script with converter functionality and CLI interface
+MP4 to Text Converter - Enhanced PoC with Local Whisper
+Combined script with converter functionality, CLI interface, and speech-to-text processing
 
-This PoC processes MP4 files and converts them to audio formats (M4A and MP3).
-Enhanced with progress tracking and interactive format selection.
+This PoC processes MP4 files, converts them to audio formats, and transcribes them to text
+using local Whisper AI with progress tracking and interactive format selection.
 """
 
 import os
@@ -14,7 +14,23 @@ import subprocess
 import threading
 import time
 import re
+import tempfile
+import shutil
+import json
 from pathlib import Path
+from typing import List, Tuple, Optional
+
+# Whisper and AI dependencies
+try:
+    import whisper
+    import torch
+    import torchaudio
+    import numpy as np
+    import soundfile as sf
+    WHISPER_AVAILABLE = True
+except ImportError as e:
+    WHISPER_AVAILABLE = False
+    # Note: Error details will be shown when actually needed
 
 
 class ProgressTracker:
@@ -60,6 +76,270 @@ class ProgressTracker:
         filled = int(width * percentage / 100)
         bar = '█' * filled + '░' * (width - filled)
         print(f'\r[{bar}] {percentage:.1f}%', end='', flush=True)
+
+
+class AudioSplitter:
+    """Audio file splitting functionality for large files"""
+    
+    def __init__(self, max_chunk_size_mb: float = 20.0):
+        """Initialize audio splitter
+        
+        Args:
+            max_chunk_size_mb: Maximum size of each chunk in MB (default 20MB for Whisper)
+        """
+        self.max_chunk_size_mb = max_chunk_size_mb
+        self.temp_dir = None
+    
+    def get_audio_duration(self, audio_file: str) -> float:
+        """Get duration of audio file in seconds"""
+        try:
+            probe = ffmpeg.probe(audio_file)
+            duration = float(probe['streams'][0]['duration'])
+            return duration
+        except Exception:
+            try:
+                cmd = ['ffprobe', '-v', 'quiet', '-show_entries', 'format=duration', 
+                       '-of', 'csv=p=0', audio_file]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                return float(result.stdout.strip())
+            except Exception:
+                return 0
+    
+    def calculate_chunk_duration(self, audio_file: str) -> float:
+        """Calculate optimal chunk duration to stay under size limit"""
+        try:
+            # Get file size and duration
+            file_size_mb = os.path.getsize(audio_file) / (1024 * 1024)
+            total_duration = self.get_audio_duration(audio_file)
+            
+            if file_size_mb <= self.max_chunk_size_mb:
+                return total_duration  # No splitting needed
+            
+            # Calculate chunk duration to achieve target size
+            chunks_needed = file_size_mb / self.max_chunk_size_mb
+            chunk_duration = total_duration / chunks_needed
+            
+            # Add small buffer and round to reasonable interval
+            chunk_duration = max(60, chunk_duration * 0.9)  # At least 1 minute chunks
+            return chunk_duration
+            
+        except Exception as e:
+            print(f"Warning: Could not calculate optimal chunk size: {e}")
+            return 1200  # Default 20 minutes
+    
+    def split_audio_file(self, input_file: str) -> List[str]:
+        """Split audio file into chunks and return list of chunk paths"""
+        input_path = Path(input_file)
+        
+        # Create temporary directory for chunks
+        self.temp_dir = tempfile.mkdtemp(prefix="audio_chunks_")
+        
+        # Calculate chunk duration
+        chunk_duration = self.calculate_chunk_duration(input_file)
+        total_duration = self.get_audio_duration(input_file)
+        
+        if total_duration <= chunk_duration:
+            # No splitting needed, copy original file
+            chunk_file = os.path.join(self.temp_dir, f"chunk_000.{input_path.suffix[1:]}")
+            shutil.copy2(input_file, chunk_file)
+            return [chunk_file]
+        
+        print(f"  📂 Splitting audio file into chunks...")
+        print(f"  ⏱️ Total duration: {total_duration/60:.1f} minutes")
+        print(f"  ✂️ Chunk duration: {chunk_duration/60:.1f} minutes")
+        
+        chunk_files = []
+        chunk_index = 0
+        start_time = 0
+        
+        while start_time < total_duration:
+            chunk_file = os.path.join(self.temp_dir, f"chunk_{chunk_index:03d}.{input_path.suffix[1:]}")
+            
+            # Calculate end time for this chunk
+            end_time = min(start_time + chunk_duration, total_duration)
+            
+            try:
+                # Use FFmpeg to extract chunk
+                cmd = [
+                    'ffmpeg', '-y',
+                    '-i', str(input_path),
+                    '-ss', str(start_time),
+                    '-t', str(end_time - start_time),
+                    '-c', 'copy',  # Copy without re-encoding for speed
+                    '-v', 'quiet',
+                    chunk_file
+                ]
+                
+                subprocess.run(cmd, check=True)
+                chunk_files.append(chunk_file)
+                
+                print(f"    ✅ Chunk {chunk_index + 1}: {start_time/60:.1f}m - {end_time/60:.1f}m")
+                
+                start_time = end_time
+                chunk_index += 1
+                
+            except subprocess.CalledProcessError as e:
+                print(f"    ❌ Failed to create chunk {chunk_index}: {e}")
+                break
+        
+        print(f"  🎵 Created {len(chunk_files)} audio chunks")
+        return chunk_files
+    
+    def cleanup_temp_files(self):
+        """Clean up temporary chunk files"""
+        if self.temp_dir and os.path.exists(self.temp_dir):
+            try:
+                shutil.rmtree(self.temp_dir)
+                print(f"  🧹 Cleaned up temporary files")
+            except Exception as e:
+                print(f"  ⚠️ Warning: Could not clean up temp files: {e}")
+
+
+class WhisperTranscriber:
+    """Local Whisper AI transcription with GPU support"""
+    
+    def __init__(self, model_name: str = "large-v3", device: str = "auto"):
+        """Initialize Whisper transcriber
+        
+        Args:
+            model_name: Whisper model to use (large-v3 recommended for Korean)
+            device: Device to use ('auto', 'cuda', 'cpu')
+        """
+        self.model_name = model_name
+        self.model = None
+        self.device = self._setup_device(device)
+        
+        if not WHISPER_AVAILABLE:
+            raise ImportError("Whisper is not available. Install with: pip install openai-whisper torch")
+    
+    def _setup_device(self, device: str) -> str:
+        """Setup optimal device for inference"""
+        if device == "auto":
+            if torch.cuda.is_available():
+                device = "cuda"
+                print(f"  🚀 GPU detected: {torch.cuda.get_device_name(0)}")
+            else:
+                device = "cpu"
+                print(f"  💻 Using CPU for processing")
+        
+        return device
+    
+    def load_model(self):
+        """Load Whisper model (downloads if first time)"""
+        if self.model is None:
+            print(f"  📥 Loading Whisper {self.model_name} model...")
+            print(f"  ℹ️ First run may download ~3GB model file")
+            
+            try:
+                self.model = whisper.load_model(self.model_name, device=self.device)
+                print(f"  ✅ Model loaded successfully on {self.device}")
+            except Exception as e:
+                print(f"  ❌ Failed to load model: {e}")
+                raise
+    
+    def transcribe_chunk(self, audio_file: str, chunk_index: int, start_time: float = 0) -> dict:
+        """Transcribe a single audio chunk"""
+        try:
+            print(f"    🎤 Processing chunk {chunk_index + 1}...")
+            
+            # Transcribe with Korean language hint and other optimizations
+            result = self.model.transcribe(
+                audio_file,
+                language="ko",  # Korean language hint
+                task="transcribe",
+                fp16=torch.cuda.is_available(),  # Use FP16 for GPU acceleration
+                verbose=False
+            )
+            
+            # Adjust timestamps based on chunk start time
+            if start_time > 0:
+                for segment in result.get("segments", []):
+                    segment["start"] += start_time
+                    segment["end"] += start_time
+            
+            return result
+            
+        except Exception as e:
+            print(f"    ❌ Error transcribing chunk {chunk_index + 1}: {e}")
+            return {"text": f"[Error transcribing chunk {chunk_index + 1}: {e}]", "segments": []}
+    
+    def transcribe_chunks(self, chunk_files: List[str], chunk_duration: float) -> List[dict]:
+        """Transcribe multiple audio chunks"""
+        if not self.model:
+            self.load_model()
+        
+        results = []
+        total_chunks = len(chunk_files)
+        
+        print(f"  🎯 Transcribing {total_chunks} chunks with Whisper {self.model_name}")
+        
+        for i, chunk_file in enumerate(chunk_files):
+            start_time = i * chunk_duration
+            result = self.transcribe_chunk(chunk_file, i, start_time)
+            results.append(result)
+            
+            # Show progress
+            progress = ((i + 1) / total_chunks) * 100
+            print(f"    📊 Progress: {progress:.1f}% ({i + 1}/{total_chunks})")
+        
+        return results
+    
+    def merge_transcripts(self, results: List[dict]) -> str:
+        """Merge multiple chunk transcripts into single text"""
+        merged_text = []
+        
+        for i, result in enumerate(results):
+            chunk_text = result.get("text", "").strip()
+            if chunk_text:
+                # Add chunk separator for debugging (optional)
+                if len(results) > 1 and i > 0:
+                    merged_text.append(f"\n")
+                merged_text.append(chunk_text)
+        
+        return " ".join(merged_text).strip()
+    
+    def transcribe_audio_file(self, audio_file: str, output_file: str = None) -> str:
+        """Complete transcription pipeline for audio file"""
+        input_path = Path(audio_file)
+        
+        # Generate output filename if not provided
+        if output_file is None:
+            output_file = str(input_path.with_suffix('.txt'))
+        
+        print(f"  🎵 Starting transcription: {input_path.name}")
+        
+        # Initialize splitter
+        splitter = AudioSplitter()
+        
+        try:
+            # Split audio file
+            chunk_files = splitter.split_audio_file(audio_file)
+            
+            # Calculate chunk duration for timestamp adjustment
+            total_duration = splitter.get_audio_duration(audio_file)
+            chunk_duration = total_duration / len(chunk_files) if len(chunk_files) > 1 else 0
+            
+            # Transcribe chunks
+            results = self.transcribe_chunks(chunk_files, chunk_duration)
+            
+            # Merge results
+            final_transcript = self.merge_transcripts(results)
+            
+            # Save to file
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(final_transcript)
+            
+            print(f"  ✅ Transcription completed: {os.path.basename(output_file)}")
+            print(f"  📝 Text length: {len(final_transcript)} characters")
+            
+            return output_file
+            
+        except Exception as e:
+            print(f"  ❌ Transcription failed: {e}")
+            raise
+        finally:
+            # Clean up temporary files
+            splitter.cleanup_temp_files()
 
 
 class AudioConverter:
@@ -315,6 +595,72 @@ class AudioConverter:
             
         except Exception as e:
             raise RuntimeError(f"Error during MP4 to MP3 conversion: {e}")
+    
+    def transcribe_audio_to_text(self, audio_file: str, output_file: str = None) -> str:
+        """
+        Transcribe audio file to text using local Whisper AI
+        
+        Args:
+            audio_file (str): Path to the input audio file (M4A, MP3, WAV)
+            output_file (str, optional): Path to the output text file.
+                                       If None, will use input filename with .txt extension
+        
+        Returns:
+            str: Path to the generated text file
+        
+        Raises:
+            FileNotFoundError: If input file doesn't exist
+            RuntimeError: If transcription fails
+        """
+        if not WHISPER_AVAILABLE:
+            raise RuntimeError("Whisper AI is not available. Please install with: pip install openai-whisper torch")
+        
+        input_path = Path(audio_file)
+        
+        # Check if input file exists
+        if not input_path.exists():
+            raise FileNotFoundError(f"Audio file not found: {audio_file}")
+        
+        # Generate output filename if not provided
+        if output_file is None:
+            output_file = str(input_path.with_suffix('.txt'))
+        
+        try:
+            print(f"  🤖 Starting AI transcription with Whisper large-v3...")
+            print(f"  🎵 Input: {os.path.basename(audio_file)}")
+            print(f"  📝 Output: {os.path.basename(output_file)}")
+            
+            # Initialize Whisper transcriber
+            transcriber = WhisperTranscriber(model_name="large-v3", device="auto")
+            
+            # Perform transcription
+            result_file = transcriber.transcribe_audio_file(audio_file, output_file)
+            
+            print(f"  🎉 Transcription completed successfully!")
+            return result_file
+            
+        except Exception as e:
+            raise RuntimeError(f"Error during audio transcription: {e}")
+
+
+def find_audio_files(directory: str = ".") -> list:
+    """
+    Find all audio files in the specified directory
+    
+    Args:
+        directory (str): Directory to search for audio files (defaults to current directory)
+    
+    Returns:
+        list: List of audio file paths (M4A, MP3, WAV)
+    """
+    patterns = ["*.m4a", "*.M4A", "*.mp3", "*.MP3", "*.wav", "*.WAV"]
+    audio_files = []
+    
+    for pattern in patterns:
+        search_path = os.path.join(directory, pattern)
+        audio_files.extend(glob.glob(search_path))
+    
+    return sorted(list(set(audio_files)))  # Remove duplicates and sort
 
 
 def find_mp4_files(directory: str = ".") -> list:
@@ -340,8 +686,8 @@ def find_mp4_files(directory: str = ".") -> list:
 def print_banner():
     """Print the application banner"""
     print("=" * 60)
-    print("         MP4 to Audio Converter - PoC")
-    print("         Converting MP4 files to M4A and MP3")
+    print("         MP4 to Text Converter - Enhanced PoC")
+    print("         MP4 → Audio → Text with Local Whisper AI")
     print("=" * 60)
     print()
 
@@ -358,19 +704,51 @@ def print_help():
     print("  --m4a-only            Only convert to M4A format")
     print("  --mp3-only            Only convert to MP3 format (direct)")
     print("  --both                Convert to both M4A and MP3 formats")
+    print("  --transcribe          Convert MP4 to text using Whisper AI")
     print()
+
+
+def select_workflow_type() -> str:
+    """
+    Interactive workflow selection menu
+    
+    Returns:
+        str: workflow type ('audio-only', 'text-only', 'audio-and-text')
+    """
+    print("🚀 Workflow Selection")
+    print("=" * 25)
+    print("1. Convert to Audio Only (MP3/M4A)")
+    print("2. Convert to Text Only (using Whisper AI)")
+    print("3. Convert to Both Audio and Text")
+    print()
+    
+    while True:
+        try:
+            choice = input("Select workflow (1-3): ").strip()
+            if choice == "1":
+                return "audio-only"
+            elif choice == "2":
+                return "text-only"
+            elif choice == "3":
+                return "audio-and-text"
+            else:
+                print("❌ Invalid choice. Please enter 1, 2, or 3.")
+                continue
+        except KeyboardInterrupt:
+            print("\n\nOperation cancelled by user.")
+            sys.exit(0)
 
 
 def select_output_format() -> tuple:
     """
-    Interactive format selection menu
+    Interactive format selection menu for audio conversion
     
     Returns:
         tuple: (format_choice, keep_intermediate)
                format_choice: 'm4a', 'mp3', 'both'
                keep_intermediate: bool
     """
-    print("🎵 Output Format Selection")
+    print("\n🎵 Audio Format Selection")
     print("=" * 30)
     print("1. MP3 only (fastest, direct conversion)")
     print("2. M4A only (high quality, smaller size)")
@@ -379,7 +757,7 @@ def select_output_format() -> tuple:
     
     while True:
         try:
-            choice = input("Select output format (1-3): ").strip()
+            choice = input("Select audio format (1-3): ").strip()
             if choice == "1":
                 format_choice = "mp3"
                 break
@@ -423,36 +801,57 @@ def select_output_format() -> tuple:
     return format_choice, keep_intermediate
 
 
-def confirm_conversion(input_files: list, format_choice: str, keep_intermediate: bool) -> bool:
+def confirm_workflow(input_files: list, workflow_type: str, format_choice: str = None, keep_intermediate: bool = False) -> bool:
     """
-    Show conversion summary and ask for confirmation
+    Show workflow summary and ask for confirmation
     
     Args:
-        input_files: List of input MP4 files
-        format_choice: Selected output format
+        input_files: List of input files
+        workflow_type: Type of workflow ('audio-only', 'text-only', 'audio-and-text')
+        format_choice: Selected audio format (if applicable)
         keep_intermediate: Whether to keep intermediate files
     
     Returns:
         bool: True if user confirms, False otherwise
     """
-    print("📋 Conversion Summary")
+    print("\n📋 Processing Summary")
     print("=" * 25)
     print(f"Files to process: {len(input_files)}")
     for i, file in enumerate(input_files, 1):
         print(f"  {i}. {os.path.basename(file)}")
     
     print()
-    format_descriptions = {
-        'mp3': "MP3 format only (direct conversion)",
-        'm4a': "M4A format only",
-        'both': f"Both M4A and MP3 formats {'(keeping M4A)' if keep_intermediate else '(removing intermediate M4A)'}"
-    }
-    print(f"Output format: {format_descriptions[format_choice]}")
+    
+    if workflow_type == "audio-only":
+        format_descriptions = {
+            'mp3': "MP3 format only (direct conversion)",
+            'm4a': "M4A format only",
+            'both': f"Both M4A and MP3 formats {'(keeping M4A)' if keep_intermediate else '(removing intermediate M4A)'}"
+        }
+        print(f"Output: {format_descriptions[format_choice]}")
+        
+    elif workflow_type == "text-only":
+        print(f"Output: Text files (.txt) using Whisper AI large-v3 model")
+        if WHISPER_AVAILABLE:
+            print(f"AI Model: Local Whisper with {'GPU' if torch.cuda.is_available() else 'CPU'} acceleration")
+        else:
+            print(f"⚠️  Warning: Whisper AI not installed")
+            
+    elif workflow_type == "audio-and-text":
+        format_descriptions = {
+            'mp3': "MP3 + Text files",
+            'm4a': "M4A + Text files", 
+            'both': f"Both M4A and MP3 + Text files {'(keeping M4A)' if keep_intermediate else '(removing intermediate M4A)'}"
+        }
+        print(f"Output: {format_descriptions[format_choice]}")
+        if WHISPER_AVAILABLE:
+            print(f"AI Model: Local Whisper with {'GPU' if torch.cuda.is_available() else 'CPU'} acceleration")
+    
     print()
     
     while True:
         try:
-            confirm = input("Proceed with conversion? (y/n): ").strip().lower()
+            confirm = input("Proceed with processing? (y/n): ").strip().lower()
             if confirm in ['y', 'yes']:
                 return True
             elif confirm in ['n', 'no']:
@@ -466,7 +865,7 @@ def confirm_conversion(input_files: list, format_choice: str, keep_intermediate:
 
 
 def main():
-    """Main function for the PoC CLI with enhanced format selection"""
+    """Main function for the Enhanced PoC with Audio-to-Text capabilities"""
     print_banner()
     
     # Parse command line arguments
@@ -475,6 +874,7 @@ def main():
     m4a_only_flag = "--m4a-only" in args
     mp3_only_flag = "--mp3-only" in args
     both_flag = "--both" in args
+    transcribe_flag = "--transcribe" in args
     
     # Remove flags from args
     args = [arg for arg in args if not arg.startswith("--")]
@@ -506,36 +906,154 @@ def main():
             print("\n💡 Tip: Place your MP4 files in the same directory as this executable.")
             return
     
-    # Determine output format and settings
-    if m4a_only_flag or mp3_only_flag or both_flag:
+    # Determine workflow and settings
+    if m4a_only_flag or mp3_only_flag or both_flag or transcribe_flag:
         # Command-line mode (skip interactive selection)
-        if m4a_only_flag:
+        if transcribe_flag:
+            workflow_type = "text-only"
+            format_choice = None
+            keep_intermediate = False
+        elif m4a_only_flag:
+            workflow_type = "audio-only"
             format_choice = "m4a"
             keep_intermediate = False
         elif mp3_only_flag:
+            workflow_type = "audio-only"
             format_choice = "mp3"
             keep_intermediate = False
         elif both_flag:
+            workflow_type = "audio-only"
             format_choice = "both"
             keep_intermediate = keep_intermediate_flag
         else:
-            format_choice = "both"  # Default
+            workflow_type = "audio-only"  # Default
+            format_choice = "both"
             keep_intermediate = keep_intermediate_flag
     else:
         # Interactive mode
-        format_choice, keep_intermediate = select_output_format()
+        workflow_type = select_workflow_type()
+        
+        if workflow_type == "audio-only":
+            format_choice, keep_intermediate = select_output_format()
+        elif workflow_type == "text-only":
+            format_choice = None
+            keep_intermediate = False
+        elif workflow_type == "audio-and-text":
+            format_choice, keep_intermediate = select_output_format()
         
         # Show confirmation
-        if not confirm_conversion(input_files, format_choice, keep_intermediate):
-            print("❌ Conversion cancelled by user.")
+        if not confirm_workflow(input_files, workflow_type, format_choice, keep_intermediate):
+            print("❌ Processing cancelled by user.")
             return
     
-    # Start conversion process
-    print("🚀 Starting Conversion Process")
+    # Start processing
+    print("🚀 Starting Processing Pipeline")
     print("=" * 35)
     print()
     
+    # Check Whisper availability if needed
+    if workflow_type in ["text-only", "audio-and-text"] and not WHISPER_AVAILABLE:
+        print("❌ Error: Whisper AI is not available.")
+        print("Please install with: pip install openai-whisper torch")
+        return
+    
     # Process each file
+    total_files = len(input_files)
+    successful_conversions = 0
+    failed_conversions = 0
+    
+    for i, input_file in enumerate(input_files, 1):
+        input_path = Path(input_file)
+        file_name = input_path.name
+        
+        print(f"[{i}/{total_files}] Processing: {file_name}")
+        print("-" * 50)
+        
+        try:
+            audio_file = None  # Track intermediate audio file for text conversion
+            
+            # Step 1: Audio conversion (if needed)
+            if workflow_type in ["audio-only", "audio-and-text"]:
+                if format_choice == "m4a":
+                    # Convert only to M4A
+                    audio_file = converter.mp4_to_m4a(input_file)
+                    print(f"✅ M4A conversion completed: {os.path.basename(audio_file)}")
+                    
+                elif format_choice == "mp3":
+                    # Convert directly to MP3
+                    audio_file = converter.convert_mp4_to_mp3_direct(input_file)
+                    print(f"✅ MP3 conversion completed: {os.path.basename(audio_file)}")
+                    
+                elif format_choice == "both":
+                    # Convert to both M4A and MP3
+                    m4a_file = converter.mp4_to_m4a(input_file)
+                    print(f"✅ M4A conversion completed: {os.path.basename(m4a_file)}")
+                    
+                    mp3_file = converter.convert_mp4_to_mp3_direct(input_file)
+                    print(f"✅ MP3 conversion completed: {os.path.basename(mp3_file)}")
+                    
+                    # Use M4A for text conversion (better quality)
+                    audio_file = m4a_file
+                    
+                    # Clean up intermediate M4A file if not requested to keep
+                    if not keep_intermediate and workflow_type == "audio-only":
+                        try:
+                            os.remove(m4a_file)
+                            print(f"🧹 Cleaned up intermediate file: {os.path.basename(m4a_file)}")
+                        except OSError as e:
+                            print(f"⚠ Warning: Could not remove {m4a_file}: {e}")
+            
+            # Step 2: Text conversion (if needed)
+            if workflow_type in ["text-only", "audio-and-text"]:
+                if workflow_type == "text-only":
+                    # Convert MP4 to audio first (use M4A for best quality)
+                    print(f"  🎵 Converting to audio for transcription...")
+                    audio_file = converter.mp4_to_m4a(input_file)
+                
+                # Transcribe to text
+                print(f"  🤖 Starting AI transcription...")
+                text_file = converter.transcribe_audio_to_text(audio_file)
+                print(f"✅ Text transcription completed: {os.path.basename(text_file)}")
+                
+                # Clean up temporary audio file for text-only workflow
+                if workflow_type == "text-only":
+                    try:
+                        os.remove(audio_file)
+                        print(f"🧹 Cleaned up temporary audio file: {os.path.basename(audio_file)}")
+                    except OSError as e:
+                        print(f"⚠ Warning: Could not remove temporary file: {e}")
+            
+            successful_conversions += 1
+            print(f"🎉 Successfully processed: {file_name}")
+            
+        except Exception as e:
+            failed_conversions += 1
+            print(f"❌ Error processing {file_name}: {e}")
+        
+        print()
+    
+    # Print summary
+    print("=" * 60)
+    print("                    🎵 PROCESSING SUMMARY 🎵")
+    print("=" * 60)
+    print(f"Total files processed:     {total_files}")
+    print(f"Successful conversions:    {successful_conversions}")
+    print(f"Failed conversions:        {failed_conversions}")
+    
+    if failed_conversions == 0:
+        print("\n🎉 All processing completed successfully!")
+        if workflow_type in ["text-only", "audio-and-text"]:
+            print("🤖 AI transcription results are ready!")
+        print("✨ Your files are ready to use!")
+    else:
+        print(f"\n⚠ {failed_conversions} processing task(s) failed. Check the error messages above.")
+    
+    print("\n📁 Check your files in the current directory.")
+    print("\nPress Enter to exit...")
+    try:
+        input()
+    except KeyboardInterrupt:
+        pass
     total_files = len(input_files)
     successful_conversions = 0
     failed_conversions = 0
