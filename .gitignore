@@ -25,6 +25,9 @@ release/*.exe
 !requirements.txt
 !docs/*.txt
 
+# Internal documentation (keep local, exclude from git)
+.github/instructions/
+
 # OS specific
 .DS_Store
 Thumbs.db
