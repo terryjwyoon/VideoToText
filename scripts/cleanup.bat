@@ -10,29 +10,29 @@ echo.
 echo Files and directories to be removed:
 echo.
 
-REM Check what will be removed
-if exist "source\" (
-    echo [FOLDER] source\ - Old project structure (superseded by standalone file)
-    set CLEANUP_NEEDED=1
-)
-
-if exist "__pycache__\" (
+REM Check what will be removed (from project root)
+if exist "..\__pycache__\" (
     echo [FOLDER] __pycache__\ - Python cache files
     set CLEANUP_NEEDED=1
 )
 
-if exist "build\" (
+if exist "..\build\" (
     echo [FOLDER] build\ - PyInstaller build artifacts
     set CLEANUP_NEEDED=1
 )
 
-if exist "dist\" (
+if exist "..\dist\" (
     echo [FOLDER] dist\ - PyInstaller distribution files
     set CLEANUP_NEEDED=1
 )
 
-if exist "*.pyc" (
+if exist "..\..\*.pyc" (
     echo [FILES]  *.pyc - Compiled Python files
+    set CLEANUP_NEEDED=1
+)
+
+if exist "..\mp4_converter_standalone.py" (
+    echo [FILE]   mp4_converter_standalone.py - Old standalone file (now in source/engine/)
     set CLEANUP_NEEDED=1
 )
 
@@ -44,7 +44,7 @@ if not defined CLEANUP_NEEDED (
 
 echo.
 echo These files are safe to remove as they are either:
-echo   - Superseded by the new standalone structure
+echo   - Superseded by the new modular structure
 echo   - Temporary build artifacts that can be regenerated
 echo   - Python cache files
 echo.
@@ -59,30 +59,31 @@ if /i not "%confirm%"=="y" (
 echo.
 echo Performing cleanup...
 
-REM Remove directories
-if exist "source\" (
-    rmdir /s /q "source"
-    echo ✅ Removed: source\
-)
-
-if exist "__pycache__\" (
-    rmdir /s /q "__pycache__"
+REM Remove directories (from project root)
+if exist "..\__pycache__\" (
+    rmdir /s /q "..\__pycache__"
     echo ✅ Removed: __pycache__\
 )
 
-if exist "build\" (
-    rmdir /s /q "build"
+if exist "..\build\" (
+    rmdir /s /q "..\build"
     echo ✅ Removed: build\
 )
 
-if exist "dist\" (
-    rmdir /s /q "dist"
+if exist "..\dist\" (
+    rmdir /s /q "..\dist"
     echo ✅ Removed: dist\
 )
 
+REM Remove old standalone file if it exists
+if exist "..\mp4_converter_standalone.py" (
+    del "..\mp4_converter_standalone.py"
+    echo ✅ Removed: mp4_converter_standalone.py (superseded by source/engine/)
+)
+
 REM Remove compiled Python files
-if exist "*.pyc" (
-    del /q "*.pyc"
+if exist "..\..\*.pyc" (
+    del /q "..\..\*.pyc"
     echo ✅ Removed: *.pyc files
 )
 
@@ -92,15 +93,16 @@ echo Cleanup completed successfully!
 echo ============================================================
 echo.
 echo Project structure is now optimized:
-echo   ✅ All functionality in mp4_converter_standalone.py
-echo   ✅ Master launcher available (launcher.bat)
-echo   ✅ Build system updated (build.bat)
+echo   ✅ Modular structure in source/ directory
+echo   ✅ Engine ready for Tauri GUI integration
+echo   ✅ Tests organized in source/tests/
+echo   ✅ Scripts organized in scripts/
 echo   ✅ No unnecessary files remaining
 echo.
 echo Next steps:
-echo   1. Run 'launcher.bat' for interactive access
+echo   1. Run '../launcher.bat' for interactive access
 echo   2. Test the system with your files
-echo   3. Build executables if needed
+echo   3. Begin Tauri GUI development in source/gui/
 echo.
 
 pause

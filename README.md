@@ -1,10 +1,11 @@
-# MP4/M4A to Text Converter - Master Control System
+# MP4/M4A to Text Converter
+
+**A complete audio-to-text conversion system with Whisper AI integration and planned Tauri GUI.**
 
 ## 🚀 Quick Start
 
-**Use the Master Launcher for the best experience:**
-
 ```bash
+# Run the master launcher
 launcher.bat
 ```
 
@@ -14,69 +15,80 @@ This provides an interactive menu system for all converter operations.
 
 ```
 mp4ToText/
-├── launcher.bat                    # 🎯 MASTER LAUNCHER (START HERE)
-├── mp4_converter_standalone.py     # Main converter engine
-├── build.bat                       # Build system for executables
-├── convert_to_text.bat             # Legacy batch file (superseded by launcher)
-├── run/
-│   ├── input/                      # Place your MP4/M4A files here
-│   └── output/                     # Converted files appear here
-├── release/                        # Built executables
-├── docs/                          # Documentation
-└── guides/                        # User guides (*.md files)
+├── launcher.bat                    # 🎯 ROOT LAUNCHER (START HERE)
+├── source/                         # Main source code
+│   ├── engine/                     # Python conversion engine
+│   │   ├── __init__.py            # Package initialization
+│   │   ├── converter.py           # Main conversion logic
+│   │   └── cli.py                 # Command line interface
+│   ├── gui/                       # 🔮 Tauri GUI (planned)
+│   │   └── __init__.py            # Future Tauri implementation
+│   └── tests/                     # Test suite
+│       ├── __init__.py            # Test package
+│       ├── test_converter.py      # Engine tests
+│       ├── test_gpu.py            # GPU detection tests
+│       └── test_whisper_warnings.py # Whisper AI tests
+├── scripts/                       # Build and management scripts
+│   ├── launcher.bat               # Main interactive launcher
+│   ├── build.bat                  # Build system for executables
+│   ├── cleanup.bat                # Project cleanup utilities
+│   └── convert_to_text.bat       # Legacy conversion script
+├── config/                        # Configuration files
+│   ├── mp4_converter.spec         # PyInstaller spec (full version)
+│   └── mp4_converter_audio_only.spec # PyInstaller spec (audio-only)
+├── run/                           # Runtime directories
+│   ├── input/                     # Place your MP4/M4A files here
+│   └── output/                    # Converted files appear here
+├── release/                       # Built executables
+└── docs/                          # Documentation
 ```
 
-## 🎯 Master Launcher Features
+## 🎯 Features
 
-### 1. File Conversion (Option 1)
-- **Auto-detection** of MP4 and M4A files
-- **Interactive workflows**:
-  - MP4 → Audio (MP3/M4A) 
-  - MP4 → Text (Whisper AI)
-  - MP4 → Audio + Text
-  - M4A → MP3
-  - M4A → Text
-  - M4A → MP3 + Text
-- **Batch processing** with progress tracking
-- **GPU acceleration** when available
+### Current Implementation
+- ✅ **MP4 to M4A/MP3 conversion** with progress tracking
+- ✅ **M4A to MP3 conversion** for audio format optimization
+- ✅ **Audio to Text transcription** using local Whisper AI large-v3
+- ✅ **GPU acceleration** support (CUDA)
+- ✅ **Batch processing** with single configuration for multiple files
+- ✅ **Interactive CLI** with comprehensive menu system
+- ✅ **Korean language optimization** with anti-hallucination measures
 
-### 2. Build System (Option 2)
-- **Full Version** (~175MB): Complete functionality with Whisper AI
-- **Audio-Only Version** (~10MB): Just audio conversion
-- **Both Versions**: Build everything at once
+### Planned Features
+- 🔮 **Tauri GUI** - Modern desktop application interface
+- 🔮 **Rust backend** - High-performance Tauri integration
+- 🔮 **Web frontend** - HTML/CSS/JS user interface
 
-### 3. System Tests (Option 3)
-- **GPU Detection**: Check CUDA availability
-- **Python Environment**: Verify setup
-- **Whisper AI Test**: Test speech-to-text
-- **Complete Test**: Run all diagnostics
+## 🎬 Usage
 
-### 4. File Management (Option 4)
-- **Clean temporary files**: Remove build artifacts
-- **Open project folders**: Quick access to directories
-- **File statistics**: View file counts and sizes
-- **Clean output directory**: Reset output folder
+### 1. Basic Conversion
+```bash
+# Interactive mode with menu selection
+launcher.bat
 
-### 5. Documentation (Option 5)
-- **Batch Processing Guide**
-- **GPU Optimization Guide** 
-- **Text Conversion Guide**
-- **Command line help**
-- **GitHub repository link**
+# Direct Python execution
+python source/engine/cli.py
+```
 
-## 🎬 How to Use
+### 2. Build Executables
+```bash
+# From scripts directory
+scripts/build.bat full     # Full version (~175MB)
+scripts/build.bat audio    # Audio-only (~10MB)  
+scripts/build.bat both     # Build both versions
+```
 
-### Basic Usage:
-1. Run `launcher.bat`
-2. Choose "Convert Files" (Option 1)
-3. Place files in `run\input\` when prompted
-4. Follow the interactive prompts
-5. Find results in `run\output\`
+### 3. Run Tests
+```bash
+# GPU detection
+python source/tests/test_gpu.py
 
-### Advanced Usage:
-- Use launcher for system tests and builds
-- Access documentation through the launcher
-- Manage files through the built-in file manager
+# Whisper AI functionality
+python source/tests/test_whisper_warnings.py
+
+# Converter engine
+python source/tests/test_converter.py
+```
 
 ## 📋 File Types Supported
 
@@ -85,34 +97,97 @@ mp4ToText/
 | **MP4** | MP3, M4A, Text | Video → Audio/Text conversion |
 | **M4A** | MP3, Text | Audio format conversion + transcription |
 
+## 🏗️ Development Structure
+
+### Engine (Python)
+- **Location**: `source/engine/`
+- **Purpose**: Core conversion functionality
+- **Entry Point**: `cli.py` for command line usage
+- **Main Module**: `converter.py` with all conversion classes
+
+### GUI (Tauri - Planned)
+- **Location**: `source/gui/`
+- **Purpose**: Desktop application interface
+- **Technology**: Rust backend + HTML/CSS/JS frontend
+- **Integration**: Communicates with Python engine
+
+### Tests
+- **Location**: `source/tests/`
+- **Purpose**: Comprehensive testing suite
+- **Coverage**: Engine, GPU, Whisper AI, integration tests
+
+### Scripts
+- **Location**: `scripts/`
+- **Purpose**: Build, deployment, and utility scripts
+- **Main Script**: `launcher.bat` for interactive access
+
+### Configuration
+- **Location**: `config/`
+- **Purpose**: PyInstaller specs and build configurations
+
 ## 🔧 Technical Details
 
-- **Engine**: `mp4_converter_standalone.py` (complete solution)
-- **Dependencies**: FFmpeg, PyTorch, Whisper AI
+- **Python Engine**: Complete conversion pipeline with Whisper AI
 - **GPU Support**: CUDA acceleration when available
 - **Batch Processing**: Multiple files with single configuration
-- **Progress Tracking**: Real-time conversion progress
+- **Progress Tracking**: Real-time conversion progress bars
+- **Korean Optimization**: Language-specific transcription settings
+- **Anti-hallucination**: Cleanup of common Whisper artifacts
 
-## 🗂️ Cleanup Completed
+## 🛠️ Development Setup
 
-The following files were removed/consolidated:
-- `source/` directory (old structure) → Now in `mp4_converter_standalone.py`
-- Duplicate batch files → Superseded by `launcher.bat`
-- Test files are preserved for system diagnostics
+1. **Clone and Setup**:
+   ```bash
+   git clone https://github.com/terryjwyoon/VideoToText.git
+   cd VideoToText
+   python -m venv .venv
+   .venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
+
+2. **Test Installation**:
+   ```bash
+   launcher.bat
+   # Choose option 3 for system tests
+   ```
+
+3. **Development**:
+   ```bash
+   # Work on engine
+   python source/engine/cli.py
+   
+   # Run specific tests
+   python source/tests/test_gpu.py
+   
+   # Build executables
+   scripts/build.bat full
+   ```
+
+## 🔮 Future Tauri GUI Implementation
+
+The project is structured to support Tauri GUI development:
+
+1. **Rust Backend** (`source/gui/`): Will handle GUI logic and Python engine communication
+2. **Web Frontend**: HTML/CSS/JS interface for modern user experience  
+3. **Engine Integration**: Seamless communication with existing Python engine
+4. **Cross-platform**: Native desktop application for Windows, macOS, Linux
 
 ## 💡 Tips
 
-- **Use the launcher**: It's the easiest way to access all features
-- **GPU acceleration**: Ensure CUDA is available for faster processing
-- **Batch processing**: Place multiple files in `run\input\` for bulk conversion
-- **Documentation**: All guides accessible through launcher Option 5
+- **Use the launcher**: `launcher.bat` provides the easiest access to all features
+- **GPU acceleration**: Ensure CUDA is available for faster transcription
+- **Batch processing**: Place multiple files in `run/input/` for bulk conversion
+- **Documentation**: All guides accessible through launcher menu
+- **Development**: Engine code is modular and ready for GUI integration
 
 ## 🔗 Links
 
 - **GitHub Repository**: https://github.com/terryjwyoon/VideoToText
-- **Local Documentation**: Available through launcher
-- **System Tests**: Run through launcher for diagnostics
+- **Engine Documentation**: See `source/engine/` for implementation details
+- **System Tests**: Use launcher Option 3 for diagnostics
 
 ---
 
-**Start with `launcher.bat` for the complete experience! 🚀**
+**Start with `launcher.bat` for the complete experience!** 🚀
+
+**Ready for Tauri GUI development!** 🔮

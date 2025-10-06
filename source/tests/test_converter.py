@@ -9,10 +9,11 @@ import sys
 import tempfile
 from pathlib import Path
 
-# Add the source directory to the path so we can import the converter
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'source', 'engine'))
+# Add the project root to the path so we can import the converter
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, project_root)
 
-from converter import AudioConverter
+from source.engine.converter import AudioConverter
 
 
 def test_converter_initialization():

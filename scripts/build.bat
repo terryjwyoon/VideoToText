@@ -14,14 +14,14 @@ echo ============================================================
 echo.
 
 REM Check if virtual environment exists
-if not exist ".venv\Scripts\python.exe" (
+if not exist "..\.venv\Scripts\python.exe" (
     echo [ERROR] Virtual environment not found!
     echo Please run this script from the project root directory.
     exit /b 1
 )
 
 REM Create release directory if it doesn't exist
-if not exist "release" mkdir "release"
+if not exist "..\release" mkdir "..\release"
 
 if "%BUILD_TYPE%"=="full" goto BUILD_FULL
 if "%BUILD_TYPE%"=="audio" goto BUILD_AUDIO
@@ -36,18 +36,18 @@ echo Building FULL version (with Whisper AI)...
 echo.
 
 REM Clean previous builds
-if exist "build" rmdir /s /q "build"
-if exist "dist" rmdir /s /q "dist"
-if exist "release\mp4_converter.exe" del "release\mp4_converter.exe"
+if exist "..\build" rmdir /s /q "..\build"
+if exist "..\dist" rmdir /s /q "..\dist"
+if exist "..\release\mp4_converter.exe" del "..\release\mp4_converter.exe"
 
 echo Building executable with PyInstaller...
-.venv\Scripts\python.exe -m PyInstaller mp4_converter.spec --noconfirm
+..\.venv\Scripts\python.exe -m PyInstaller ..\config\mp4_converter.spec --noconfirm
 
-if exist "dist\mp4_converter.exe" (
-    copy "dist\mp4_converter.exe" "release\"
-    for %%f in ("release\mp4_converter.exe") do (
+if exist "..\dist\mp4_converter.exe" (
+    copy "..\dist\mp4_converter.exe" "..\release\"
+    for %%f in ("..\release\mp4_converter.exe") do (
         echo ✅ FULL version built successfully!
-        echo    File: release\mp4_converter.exe
+        echo    File: ..\release\mp4_converter.exe
         echo    Size: %%~zf bytes (~175MB)
         echo    Features: MP4/M4A conversion + Whisper AI transcription
     )
