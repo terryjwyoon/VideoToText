@@ -62,7 +62,8 @@ class ProgressTracker:
             try:
                 cmd = ['ffprobe', '-v', 'quiet', '-show_entries', 'format=duration', 
                        '-of', 'csv=p=0', input_file]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=10,
+                                       encoding='utf-8', errors='replace')
                 return float(result.stdout.strip())
             except:
                 return 0
@@ -109,7 +110,8 @@ class AudioSplitter:
             try:
                 cmd = ['ffprobe', '-v', 'quiet', '-show_entries', 'format=duration', 
                        '-of', 'csv=p=0', audio_file]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=10,
+                                       encoding='utf-8', errors='replace')
                 return float(result.stdout.strip())
             except Exception:
                 return 0
@@ -179,7 +181,7 @@ class AudioSplitter:
                     chunk_file
                 ]
                 
-                subprocess.run(cmd, check=True)
+                subprocess.run(cmd, check=True, encoding='utf-8', errors='replace')
                 chunk_files.append(chunk_file)
                 
                 print(f"    ✅ Chunk {chunk_index + 1}: {start_time/60:.1f}m - {end_time/60:.1f}m")
@@ -457,7 +459,9 @@ class AudioConverter:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 universal_newlines=True,
-                bufsize=1
+                bufsize=1,
+                encoding='utf-8',
+                errors='replace'
             )
             
             # Monitor progress
@@ -673,7 +677,14 @@ class AudioConverter:
                 str(output_path)
             ]
             
-            success = self._run_ffmpeg_with_progress(cmd, str(input_path), "MP4 → MP3 (Direct)")
+            # Detect input file type for proper labeling
+            input_ext = input_path.suffix.lower()
+            if input_ext == '.m4a':
+                operation_label = "M4A → MP3"
+            else:
+                operation_label = "MP4 → MP3 (Direct)"
+            
+            success = self._run_ffmpeg_with_progress(cmd, str(input_path), operation_label)
             
             # Verify output file was created
             if not success or not output_path.exists():
@@ -1169,12 +1180,20 @@ def main():
             format_choice = "m4a"
             keep_intermediate = False
         elif mp3_only_flag:
-            workflow_type = "audio-only"
-            format_choice = "mp3"
+            if file_type == "M4A":
+                workflow_type = "m4a-to-mp3"
+                format_choice = "mp3"
+            else:
+                workflow_type = "audio-only"
+                format_choice = "mp3"
             keep_intermediate = False
         elif both_flag:
-            workflow_type = "audio-only"
-            format_choice = "both"
+            if file_type == "M4A":
+                workflow_type = "m4a-mp3-and-text"
+                format_choice = "both"
+            else:
+                workflow_type = "audio-and-text"
+                format_choice = "both"
             keep_intermediate = keep_intermediate_flag
         else:
             workflow_type = "audio-only"  # Default

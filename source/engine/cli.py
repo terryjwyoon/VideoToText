@@ -9,8 +9,11 @@ It imports and runs the main function from the converter module.
 import sys
 import os
 
-# Add the parent directory to path so we can import the engine
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add the project root directory to path so we can import the source modules
+# This handles being run from various locations including scripts/ subdirectory
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(current_dir))  # Go up from source/engine/ to project root
+sys.path.insert(0, project_root)
 
 from source.engine.converter import main
 

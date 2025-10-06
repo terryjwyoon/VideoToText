@@ -56,7 +56,7 @@ REM Create directories if they don't exist
 if not exist "run\input" mkdir "run\input"
 if not exist "run\output" mkdir "run\output"
 
-REM Check for MP4 files
+REM Check for MP4 files in scripts\run\input
 set mp4_count=0
 for %%f in ("run\input\*.mp4") do set /a mp4_count+=1
 
@@ -89,10 +89,22 @@ echo [INPUT]  Directory: %CD%\run\input\
 echo [OUTPUT] Directory: %CD%\run\output\
 echo.
 
-REM Run the converter
-echo Starting interactive converter...
+REM Copy files to main run directory for processing
+echo Preparing files for conversion...
+if not exist "..\run\input" mkdir "..\run\input"
+if not exist "..\run\output" mkdir "..\run\output"
+copy "run\input\*.*" "..\run\input\" >nul 2>&1
+
+REM Run the converter from project root with --mp3-only flag for M4A files
+echo Starting audio converter...
 echo.
-..\.venv\Scripts\python.exe source\engine\cli.py
+cd ..
+.venv\Scripts\python.exe source\engine\cli.py --mp3-only
+cd scripts
+
+REM Copy results back
+echo Copying results back to scripts\run\output...
+copy "..\run\output\*.*" "run\output\" >nul 2>&1
 
 echo.
 echo Processing completed! Check the output directory for results.
@@ -113,7 +125,7 @@ echo                   Build Executables Mode
 echo ============================================================
 echo.
 
-if not exist ".venv\Scripts\python.exe" (
+if not exist "..\.venv\Scripts\python.exe" (
     echo [ERROR] Virtual environment not found!
     echo Please ensure you're running from the project root directory.
     pause
@@ -203,21 +215,21 @@ goto SYSTEM_TESTS
 :TEST_GPU
 echo.
 echo Running GPU detection test...
-.venv\Scripts\python.exe test_gpu.py
+..\.venv\Scripts\python.exe ..\source\tests\test_gpu.py
 pause
 goto MAIN_MENU
 
 :TEST_PYTHON
 echo.
 echo Testing Python environment...
-.venv\Scripts\python.exe -c "import sys; print(f'Python version: {sys.version}'); import mp4_converter_standalone; print('✅ Main converter loaded successfully')"
+..\.venv\Scripts\python.exe -c "import sys; print(f'Python version: {sys.version}'); import source.engine.converter; print('✅ Main converter loaded successfully')"
 pause
 goto MAIN_MENU
 
 :TEST_WHISPER
 echo.
 echo Testing Whisper AI functionality...
-.venv\Scripts\python.exe test_whisper_warnings.py
+..\.venv\Scripts\python.exe ..\source\tests\test_whisper_warnings.py
 pause
 goto MAIN_MENU
 
@@ -226,16 +238,16 @@ echo.
 echo Running complete system test...
 echo.
 echo === GPU Test ===
-.venv\Scripts\python.exe test_gpu.py
+..\.venv\Scripts\python.exe ..\source\tests\test_gpu.py
 echo.
 echo === Python Environment Test ===
-.venv\Scripts\python.exe -c "import sys; print(f'Python version: {sys.version}'); import mp4_converter_standalone; print('✅ Main converter loaded successfully')"
+..\.venv\Scripts\python.exe -c "import sys; print(f'Python version: {sys.version}'); import source.engine.converter; print('✅ Main converter loaded successfully')"
 echo.
 echo === Whisper Test ===
-.venv\Scripts\python.exe test_whisper_warnings.py
+..\.venv\Scripts\python.exe ..\source\tests\test_whisper_warnings.py
 echo.
 echo === Converter Syntax Test ===
-.venv\Scripts\python.exe -c "import mp4_converter_standalone; print('✅ All tests completed successfully')"
+..\.venv\Scripts\python.exe -c "import source.engine.converter; print('✅ All tests completed successfully')"
 pause
 goto MAIN_MENU
 
@@ -358,11 +370,11 @@ echo [0] Return to main menu
 echo.
 set /p docchoice="Choose documentation (0-6): "
 
-if "%docchoice%"=="1" if exist "BATCH_PROCESSING_GUIDE.md" type "BATCH_PROCESSING_GUIDE.md" & pause & goto MAIN_MENU
-if "%docchoice%"=="2" if exist "GPU_OPTIMIZATION_GUIDE.md" type "GPU_OPTIMIZATION_GUIDE.md" & pause & goto MAIN_MENU
-if "%docchoice%"=="3" if exist "MISSING_AUDIO_FIX.md" type "MISSING_AUDIO_FIX.md" & pause & goto MAIN_MENU
-if "%docchoice%"=="4" if exist "TEXT_CONVERSION_GUIDE.md" type "TEXT_CONVERSION_GUIDE.md" & pause & goto MAIN_MENU
-if "%docchoice%"=="5" .venv\Scripts\python.exe mp4_converter_standalone.py --help & pause & goto MAIN_MENU
+if "%docchoice%"=="1" if exist "..\BATCH_PROCESSING_GUIDE.md" type "..\BATCH_PROCESSING_GUIDE.md" & pause & goto MAIN_MENU
+if "%docchoice%"=="2" if exist "..\GPU_OPTIMIZATION_GUIDE.md" type "..\GPU_OPTIMIZATION_GUIDE.md" & pause & goto MAIN_MENU
+if "%docchoice%"=="3" if exist "..\MISSING_AUDIO_FIX.md" type "..\MISSING_AUDIO_FIX.md" & pause & goto MAIN_MENU
+if "%docchoice%"=="4" if exist "..\TEXT_CONVERSION_GUIDE.md" type "..\TEXT_CONVERSION_GUIDE.md" & pause & goto MAIN_MENU
+if "%docchoice%"=="5" ..\.venv\Scripts\python.exe ..\source\engine\cli.py --help & pause & goto MAIN_MENU
 if "%docchoice%"=="6" start https://github.com/terryjwyoon/VideoToText & goto MAIN_MENU
 if "%docchoice%"=="0" goto MAIN_MENU
 
