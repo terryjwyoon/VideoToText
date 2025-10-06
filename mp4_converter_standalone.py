@@ -773,11 +773,31 @@ def find_mp4_files(directory: str = ".") -> list:
     return sorted(list(set(mp4_files)))  # Remove duplicates and sort
 
 
+def find_m4a_files(directory: str = ".") -> list:
+    """
+    Find all M4A files in the specified directory
+    
+    Args:
+        directory (str): Directory to search for M4A files (defaults to current directory)
+    
+    Returns:
+        list: List of M4A file paths
+    """
+    patterns = ["*.m4a", "*.M4A"]
+    m4a_files = []
+    
+    for pattern in patterns:
+        search_path = os.path.join(directory, pattern)
+        m4a_files.extend(glob.glob(search_path))
+    
+    return sorted(list(set(m4a_files)))  # Remove duplicates and sort
+
+
 def print_banner():
     """Print the application banner"""
     print("=" * 60)
-    print("         MP4 to Text Converter - Enhanced PoC")
-    print("         MP4 → Audio → Text with Local Whisper AI")
+    print("      MP4/M4A to Text Converter - Enhanced PoC")
+    print("    MP4/M4A → Audio/Text with Local Whisper AI")
     print("=" * 60)
     print()
 
@@ -786,8 +806,22 @@ def print_help():
     """Print help information"""
     print("Usage:")
     print("  mp4_converter.exe                    - Interactive mode with format selection")
-    print("  mp4_converter.exe <input_file>       - Convert specific MP4 file (interactive)")
+    print("  mp4_converter.exe <input_file>       - Convert specific MP4/M4A file (interactive)")
     print("  mp4_converter.exe --help             - Show this help message")
+    print()
+    print("Supported Files:")
+    print("  - MP4 video files (.mp4)")
+    print("  - M4A audio files (.m4a)")
+    print()
+    print("Available Workflows:")
+    print("  MP4 Files:")
+    print("    • Convert to Audio Only (MP3/M4A)")
+    print("    • Convert to Text Only (using Whisper AI)")
+    print("    • Convert to Both Audio and Text")
+    print("  M4A Files:")
+    print("    • Convert M4A to MP3")
+    print("    • Convert to Text Only (using Whisper AI)")
+    print("    • Convert to Both MP3 and Text")
     print()
     print("Command Line Options (skip interactive mode):")
     print("  --keep-intermediate    Keep intermediate M4A files (default: delete them)")
@@ -798,26 +832,32 @@ def print_help():
     print()
 
 
-def select_workflow_type(file_count: int = 1) -> str:
+def select_workflow_type(file_count: int = 1, file_type: str = "MP4") -> str:
     """
     Interactive workflow selection menu
     
     Args:
         file_count: Number of files to process (for batch processing info)
+        file_type: Type of files being processed ("MP4" or "M4A")
     
     Returns:
-        str: workflow type ('audio-only', 'text-only', 'audio-and-text')
+        str: workflow type ('audio-only', 'text-only', 'audio-and-text', 'm4a-to-mp3')
     """
     print("🚀 Workflow Selection")
     print("=" * 25)
     
     if file_count > 1:
-        print(f"📁 Found {file_count} MP4 files - This selection will apply to ALL files")
+        print(f"📁 Found {file_count} {file_type} files - This selection will apply to ALL files")
         print()
     
-    print("1. Convert to Audio Only (MP3/M4A)")
-    print("2. Convert to Text Only (using Whisper AI)")
-    print("3. Convert to Both Audio and Text")
+    if file_type == "MP4":
+        print("1. Convert to Audio Only (MP3/M4A)")
+        print("2. Convert to Text Only (using Whisper AI)")
+        print("3. Convert to Both Audio and Text")
+    elif file_type == "M4A":
+        print("1. Convert M4A to MP3")
+        print("2. Convert to Text Only (using Whisper AI)")
+        print("3. Convert to Both MP3 and Text")
     print()
     
     while True:
@@ -828,11 +868,17 @@ def select_workflow_type(file_count: int = 1) -> str:
                 choice = input("Select workflow (1-3): ").strip()
                 
             if choice == "1":
-                return "audio-only"
+                if file_type == "MP4":
+                    return "audio-only"
+                elif file_type == "M4A":
+                    return "m4a-to-mp3"
             elif choice == "2":
                 return "text-only"
             elif choice == "3":
-                return "audio-and-text"
+                if file_type == "MP4":
+                    return "audio-and-text"
+                elif file_type == "M4A":
+                    return "m4a-mp3-and-text"
             else:
                 print("❌ Invalid choice. Please enter 1, 2, or 3.")
                 continue
@@ -955,6 +1001,9 @@ def confirm_workflow(input_files: list, workflow_type: str, format_choice: str =
         }
         print(f"📄 Output: {format_descriptions[format_choice]}")
         
+    elif workflow_type == "m4a-to-mp3":
+        print(f"📄 Output: Convert M4A files to MP3 format")
+        
     elif workflow_type == "text-only":
         print(f"📄 Output: Text files (.txt) using Whisper AI large-v3 model")
         if WHISPER_AVAILABLE:
@@ -969,6 +1018,11 @@ def confirm_workflow(input_files: list, workflow_type: str, format_choice: str =
             'both': f"Both M4A and MP3 + Text files {'(keeping M4A)' if keep_intermediate else '(removing intermediate M4A)'}"
         }
         print(f"📄 Output: {format_descriptions[format_choice]}")
+        if WHISPER_AVAILABLE:
+            print(f"🤖 AI Model: Local Whisper with {'GPU' if torch.cuda.is_available() else 'CPU'} acceleration")
+            
+    elif workflow_type == "m4a-mp3-and-text":
+        print(f"📄 Output: Convert M4A to MP3 + Text files")
         if WHISPER_AVAILABLE:
             print(f"🤖 AI Model: Local Whisper with {'GPU' if torch.cuda.is_available() else 'CPU'} acceleration")
     
@@ -1018,42 +1072,90 @@ def main():
     converter = AudioConverter()
     
     # Determine input files
+    input_files = []
+    file_type = "MP4"  # Default file type
+    
     if args:
         # Specific file provided
-        input_files = [args[0]]
-        if not os.path.exists(args[0]):
-            print(f"❌ Error: File '{args[0]}' not found!")
+        input_file = args[0]
+        if not os.path.exists(input_file):
+            print(f"❌ Error: File '{input_file}' not found!")
+            sys.exit(1)
+        
+        # Determine file type based on extension
+        file_ext = os.path.splitext(input_file)[1].lower()
+        if file_ext in ['.mp4']:
+            file_type = "MP4"
+            input_files = [input_file]
+        elif file_ext in ['.m4a']:
+            file_type = "M4A"
+            input_files = [input_file]
+        else:
+            print(f"❌ Error: Unsupported file type '{file_ext}'. Supported: .mp4, .m4a")
             sys.exit(1)
     else:
         # Check for batch processing directory first
         input_dir = os.path.join(os.getcwd(), "run", "input")
+        current_dir = os.getcwd()
+        
+        # Look for MP4 files first
         if os.path.exists(input_dir):
-            input_files = find_mp4_files(input_dir)
-            if input_files:
-                print(f"📁 Found {len(input_files)} MP4 files in batch input directory")
-                print(f"📂 Input directory: {input_dir}")
-            else:
-                # Fall back to current directory
-                current_dir = os.getcwd()
-                input_files = find_mp4_files(current_dir)
+            mp4_files = find_mp4_files(input_dir)
+            m4a_files = find_m4a_files(input_dir)
         else:
-            # Process all MP4 files in current directory
-            current_dir = os.getcwd()
-            input_files = find_mp4_files(current_dir)
+            mp4_files = find_mp4_files(current_dir)
+            m4a_files = find_m4a_files(current_dir)
+        
+        # Determine which file type to process
+        if mp4_files and m4a_files:
+            print(f"📁 Found {len(mp4_files)} MP4 files and {len(m4a_files)} M4A files")
+            print("Which file type would you like to process?")
+            print("1. MP4 files")
+            print("2. M4A files")
+            
+            while True:
+                try:
+                    choice = input("Select file type (1-2): ").strip()
+                    if choice == "1":
+                        input_files = mp4_files
+                        file_type = "MP4"
+                        break
+                    elif choice == "2":
+                        input_files = m4a_files
+                        file_type = "M4A"
+                        break
+                    else:
+                        print("❌ Invalid choice. Please enter 1 or 2.")
+                except KeyboardInterrupt:
+                    print("\n\nOperation cancelled by user.")
+                    sys.exit(0)
+        elif mp4_files:
+            input_files = mp4_files
+            file_type = "MP4"
+            print(f"📁 Found {len(mp4_files)} MP4 files")
+        elif m4a_files:
+            input_files = m4a_files
+            file_type = "M4A"
+            print(f"📁 Found {len(m4a_files)} M4A files")
         
         if not input_files:
-            print("No MP4 files found.")
+            print("No supported files found.")
             if os.path.exists(input_dir):
                 print(f"Checked directories:")
                 print(f"  - Batch input: {input_dir}")
                 print(f"  - Current: {os.getcwd()}")
             else:
                 print(f"Current directory: {os.getcwd()}")
-            print("\nSupported file extensions: .mp4, .MP4")
-            print("\n💡 Tip: Place your MP4 files in:")
+            print("\nSupported file extensions: .mp4, .MP4, .m4a, .M4A")
+            print("\n💡 Tip: Place your files in:")
             print("   - run\\input\\ directory (for batch processing)")
             print("   - Same directory as this executable")
             return
+        
+        if os.path.exists(input_dir):
+            print(f"📂 Input directory: {input_dir}")
+        else:
+            print(f"📂 Processing files from: {os.getcwd()}")
     
     # Determine workflow and settings
     if m4a_only_flag or mp3_only_flag or both_flag or transcribe_flag:
@@ -1081,15 +1183,23 @@ def main():
     else:
         # Interactive mode
         total_files = len(input_files)
-        workflow_type = select_workflow_type(total_files)
+        workflow_type = select_workflow_type(total_files, file_type)
         
-        if workflow_type == "audio-only":
-            format_choice, keep_intermediate = select_output_format(total_files)
+        if workflow_type in ["audio-only", "m4a-to-mp3"]:
+            if workflow_type == "m4a-to-mp3":
+                format_choice = "mp3"  # M4A to MP3 conversion
+                keep_intermediate = False
+            else:
+                format_choice, keep_intermediate = select_output_format(total_files)
         elif workflow_type == "text-only":
             format_choice = None
             keep_intermediate = False
-        elif workflow_type == "audio-and-text":
-            format_choice, keep_intermediate = select_output_format(total_files)
+        elif workflow_type in ["audio-and-text", "m4a-mp3-and-text"]:
+            if workflow_type == "m4a-mp3-and-text":
+                format_choice = "mp3"  # M4A to MP3 + text
+                keep_intermediate = False
+            else:
+                format_choice, keep_intermediate = select_output_format(total_files)
         
         # Show confirmation
         if not confirm_workflow(input_files, workflow_type, format_choice, keep_intermediate):
@@ -1142,40 +1252,55 @@ def main():
         try:
             audio_file = None  # Track intermediate audio file for text conversion
             
-            # Step 1: Audio conversion (if needed)
-            if workflow_type in ["audio-only", "audio-and-text"]:
-                if format_choice == "m4a":
-                    # Convert only to M4A
-                    audio_file = converter.mp4_to_m4a(input_file)
-                    print(f"✅ M4A conversion completed: {os.path.basename(audio_file)}")
-                    
-                elif format_choice == "mp3":
-                    # Convert directly to MP3
-                    audio_file = converter.convert_mp4_to_mp3_direct(input_file)
+            # Determine file extension for processing logic
+            file_ext = input_path.suffix.lower()
+            
+            # Step 1: Audio conversion based on file type and workflow
+            if file_ext == '.mp4':
+                # MP4 file processing
+                if workflow_type in ["audio-only", "audio-and-text"]:
+                    if format_choice == "m4a":
+                        # Convert only to M4A
+                        audio_file = converter.mp4_to_m4a(input_file)
+                        print(f"✅ M4A conversion completed: {os.path.basename(audio_file)}")
+                        
+                    elif format_choice == "mp3":
+                        # Convert directly to MP3
+                        audio_file = converter.convert_mp4_to_mp3_direct(input_file)
+                        print(f"✅ MP3 conversion completed: {os.path.basename(audio_file)}")
+                        
+                    elif format_choice == "both":
+                        # Convert to both M4A and MP3
+                        m4a_file = converter.mp4_to_m4a(input_file)
+                        print(f"✅ M4A conversion completed: {os.path.basename(m4a_file)}")
+                        
+                        mp3_file = converter.convert_mp4_to_mp3_direct(input_file)
+                        print(f"✅ MP3 conversion completed: {os.path.basename(mp3_file)}")
+                        
+                        # Use M4A for text conversion (better quality)
+                        audio_file = m4a_file
+                        
+                        # Clean up intermediate M4A file if not requested to keep
+                        if not keep_intermediate and workflow_type == "audio-only":
+                            try:
+                                os.remove(m4a_file)
+                                print(f"🧹 Cleaned up intermediate file: {os.path.basename(m4a_file)}")
+                            except OSError as e:
+                                print(f"⚠ Warning: Could not remove {m4a_file}: {e}")
+                                
+            elif file_ext == '.m4a':
+                # M4A file processing
+                if workflow_type in ["m4a-to-mp3", "m4a-mp3-and-text"]:
+                    # Convert M4A to MP3
+                    audio_file = converter.m4a_to_mp3(input_file)
                     print(f"✅ MP3 conversion completed: {os.path.basename(audio_file)}")
-                    
-                elif format_choice == "both":
-                    # Convert to both M4A and MP3
-                    m4a_file = converter.mp4_to_m4a(input_file)
-                    print(f"✅ M4A conversion completed: {os.path.basename(m4a_file)}")
-                    
-                    mp3_file = converter.convert_mp4_to_mp3_direct(input_file)
-                    print(f"✅ MP3 conversion completed: {os.path.basename(mp3_file)}")
-                    
-                    # Use M4A for text conversion (better quality)
-                    audio_file = m4a_file
-                    
-                    # Clean up intermediate M4A file if not requested to keep
-                    if not keep_intermediate and workflow_type == "audio-only":
-                        try:
-                            os.remove(m4a_file)
-                            print(f"🧹 Cleaned up intermediate file: {os.path.basename(m4a_file)}")
-                        except OSError as e:
-                            print(f"⚠ Warning: Could not remove {m4a_file}: {e}")
+                elif workflow_type == "text-only":
+                    # Use M4A file directly for transcription
+                    audio_file = input_file
             
             # Step 2: Text conversion (if needed)
-            if workflow_type in ["text-only", "audio-and-text"]:
-                if workflow_type == "text-only":
+            if workflow_type in ["text-only", "audio-and-text", "m4a-mp3-and-text"]:
+                if workflow_type == "text-only" and file_ext == '.mp4':
                     # Convert MP4 to audio first (use M4A for best quality)
                     print(f"  🎵 Converting to audio for transcription...")
                     audio_file = converter.mp4_to_m4a(input_file)
@@ -1186,7 +1311,7 @@ def main():
                 print(f"✅ Text transcription completed: {os.path.basename(text_file)}")
                 
                 # Clean up temporary audio file for text-only workflow
-                if workflow_type == "text-only":
+                if workflow_type == "text-only" and file_ext == '.mp4':
                     try:
                         os.remove(audio_file)
                         print(f"🧹 Cleaned up temporary audio file: {os.path.basename(audio_file)}")
